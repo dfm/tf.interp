@@ -1,0 +1,6 @@
+.DS_Store
+build
+test_data/*
+*.so
+*.pyc
+__pycache__
