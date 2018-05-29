@@ -3,17 +3,20 @@
 #include "tensorflow/core/framework/op_kernel.h"
 #include "tensorflow/core/framework/tensor_shape.h"
 #include "tensorflow/core/framework/shape_inference.h"
+#include "tensorflow/core/framework/register_types.h"
 
 using namespace tensorflow;
 
 REGISTER_OP("InterpRegular")
-  .Attr("ndim: int")
-  .Attr("T: {float, double}")
+  .Attr("T: realnumbertype")
+  .Attr("ndim: int >= 1")
   .Attr("check_sorted: bool = true")
+  .Attr("bounds_error: bool = false")
   .Input("points: ndim * T")
   .Input("values: T")
   .Input("xi: T")
   .Output("zi: T")
+  .Output("dz: T")
   .SetShapeFn([](shape_inference::InferenceContext* c) {
     int ndim;
     TF_RETURN_IF_ERROR(c->GetAttr("ndim", &ndim));
@@ -42,29 +45,25 @@ REGISTER_OP("InterpRegular")
     TF_RETURN_IF_ERROR(c->Subshape(xi_shape, 0, -1, &xi_shape));
     TF_RETURN_IF_ERROR(c->Concatenate(xi_shape, zi_shape, &zi_shape));
     c->set_output(0, zi_shape);
+    c->set_output(1, zi_shape);
 
     return Status::OK();
   });
 
-// TODO: use http://en.cppreference.com/w/cpp/algorithm/lower_bound instead
+// adapted from https://academy.realm.io/posts/how-we-beat-cpp-stl-binary-search/
 template <typename T>
 inline int64 search_sorted (int64 N, const typename TTypes<T>::ConstFlat& x, const T& value) {
-  if (value <= x(0)) {
-    return 0;
+  int64 low = -1;
+  int64 high = N;
+  while (high - low > 1) {
+    int64 probe = (low + high) / 2;
+    T v = x(probe);
+    if (v > value)
+      high = probe;
+    else
+      low = probe;
   }
-  if (value >= x(N-1)) {
-    return N+1;
-  }
-  int64 left = 0, right = N-1;
-  while (left < right) {
-    int64 middle = left + ((right - left) >> 1);
-    if (x(middle) < value) {
-      left = middle + 1;
-    } else {
-      right = middle;
-    }
-  }
-  return right;
+  return high;
 }
 
 template <typename T>
@@ -72,8 +71,8 @@ class InterpRegularOp : public OpKernel {
  public:
   explicit InterpRegularOp(OpKernelConstruction* context) : OpKernel(context) {
     OP_REQUIRES_OK(context, context->GetAttr("ndim", &ndim_));
-    OP_REQUIRES(context, (ndim_ >= 1), errors::InvalidArgument("'ndim' must be >= 1"));
     OP_REQUIRES_OK(context, context->GetAttr("check_sorted", &check_sorted_));
+    OP_REQUIRES_OK(context, context->GetAttr("bounds_error", &bounds_error_));
   }
 
   void Compute(OpKernelContext* context) override {
@@ -113,7 +112,8 @@ class InterpRegularOp : public OpKernel {
 
     // Allocate temporary arrays to store indices and weights
     Eigen::Matrix<int64, Eigen::Dynamic, Eigen::Dynamic> inds(ntest, ndim_);
-    Eigen::Matrix<T, Eigen::Dynamic, Eigen::Dynamic> norm_dist(ntest, ndim_);
+    Eigen::Matrix<T, Eigen::Dynamic, Eigen::Dynamic> numerator(ntest, ndim_);
+    Eigen::Matrix<T, Eigen::Dynamic, Eigen::Dynamic> denominator(ntest, ndim_);
 
     // Compute the output shapes
     auto values_shape = values_tensor.shape(),
@@ -122,9 +122,13 @@ class InterpRegularOp : public OpKernel {
     zi_shape.RemoveLastDims(1);
     zi_shape.AppendShape(values_shape);
     Tensor* zi_tensor = NULL;
+    Tensor* dz_tensor = NULL;
     OP_REQUIRES_OK(context, context->allocate_output(0, zi_shape, &zi_tensor));
+    OP_REQUIRES_OK(context, context->allocate_output(1, zi_shape, &dz_tensor));
     auto zi = Matrix(zi_tensor->template flat<T>().data(), ntest, nout);
     zi.setZero();
+    auto dz = Matrix(dz_tensor->template flat<T>().data(), ntest, nout);
+    dz.setZero();
 
     // Loop over dimensions and compute the indices of each test point in each grid
     for (int n = 0; n < ndim_; ++n) {
@@ -153,8 +157,12 @@ class InterpRegularOp : public OpKernel {
           out_of_bounds = true;
           ind = N-2;
         }
+        if (bounds_error_) {
+          OP_REQUIRES(context, (out_of_bounds == false), errors::InvalidArgument("target point out of bounds"));
+        }
         inds(m, n) = ind;
-        norm_dist(m, n) = (xi(m, n) - points(ind)) / (points(ind+1) - points(ind));
+        numerator(m, n) = xi(m, n) - points(ind);
+        denominator(m, n) = points(ind+1) - points(ind);
       }
     }
 
@@ -166,25 +174,30 @@ class InterpRegularOp : public OpKernel {
       for (unsigned corner = 0; corner < ncorner; ++corner) {
         int64 factor = 1;
         int64 ind = 0;
-        T weight = 1.0;
+        T weight = T(1.0);
+        T sum = T(0.0);
         for (int dim = ndim_-1; dim >= 0; --dim) {
           unsigned offset = (corner >> unsigned(dim)) & 1;
           ind += factor * (inds(n, dim) + offset);
           factor *= grid_dims(dim);
+          T norm_dist = numerator(n, dim) / denominator(n, dim);
           if (offset == 1) {
-            weight *= norm_dist(n, dim);
+            weight *= norm_dist;
+            sum += T(1.0) / numerator(n, dim);
           } else {
-            weight *= 1.0 - norm_dist(n, dim);
+            weight *= T(1.0) - norm_dist;
+            sum -= T(1.0) / numerator(n, dim);
           }
         }
 
-        zi.row(n) += weight * values.row(ind);
+        zi.row(n).noalias() += weight * values.row(ind);
+        dz.row(n).noalias() += (weight * sum) * values.row(ind);
       }
     }
   }
  private:
   int ndim_;
-  bool check_sorted_;
+  bool check_sorted_, bounds_error_;
 };
 
 
@@ -193,7 +206,6 @@ class InterpRegularOp : public OpKernel {
       Name("InterpRegular").Device(DEVICE_CPU).TypeConstraint<type>("T"),   \
       InterpRegularOp<type>)
 
-REGISTER_KERNEL(float);
-REGISTER_KERNEL(double);
+TF_CALL_REAL_NUMBER_TYPES(REGISTER_KERNEL);
 
 #undef REGISTER_KERNEL
