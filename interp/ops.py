@@ -2,7 +2,7 @@
 
 from __future__ import division, print_function
 
-__all__ = []
+__all__ = ["regular_nd"]
 
 import os
 import sysconfig
@@ -20,7 +20,33 @@ def _load_library(name):
     return tf.load_op_library(libfile)
 
 
-regular_op = _load_library("regular_op")
+interp_ops = _load_library("interp_ops")
+
+
+def regular_nd(*args, **kwargs):
+    """Linear interpolation on a regular grid in arbitrary dimensions
+
+    The data must be defined on a filled regular grid, but the spacing may be
+    uneven in any of the dimensions.
+
+    Args:
+        points: A list of ``Tensor`` objects with shapes ``(m1,), ... (mn,)``.
+            These tensors define the grid points in each dimension.
+        values: A ``Tensor`` defining the values at each point in the grid
+            defined by ``points``. This must have the shape
+            ``(m1, ... mn, ...)``.
+        xi: A ``Tensor`` defining the coordinates where the interpolation
+            should be evaluated.
+        check_sorted: If ``True`` (default), check that the tensors in
+            ``points`` are all sorted in ascending order. This can be set to
+            ``False`` if the axes are known to be sorted, but the results will
+            be unpredictable if this ends up being wrong.
+        bounds_error: If ``False`` (default) extrapolate beyond the edges of
+            the grid. Otherwise raise an exception.
+        name: A name for the operation (optional).
+
+    """
+    return interp_ops.interp_regular(*args, **kwargs)[0]
 
 
 @tf.RegisterGradient("InterpRegular")

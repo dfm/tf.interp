@@ -7,7 +7,7 @@ import numpy as np
 import tensorflow as tf
 from scipy.interpolate import RegularGridInterpolator
 
-from .ops import regular_op
+from .ops import regular_nd
 
 
 class RegularTest(tf.test.TestCase):
@@ -26,7 +26,7 @@ class RegularTest(tf.test.TestCase):
                     points = [np.linspace(1, 2, s) for s in shape_in]
                     values = np.random.randn(*(shape_in + [1, 10, 2]))
                     xi = np.random.uniform(1, 2, shape_out + [len(shape_in)])
-                    Z, _ = regular_op.interp_regular(points, values, xi)
+                    Z = regular_nd(points, values, xi)
 
                     interp = RegularGridInterpolator(points, values)
                     Z_ref = interp(xi)
@@ -48,7 +48,7 @@ class RegularTest(tf.test.TestCase):
                     values = np.random.randn(*(shape_in + [3, 2, 1]))
                     xi = tf.constant(
                         np.random.uniform(1, 2, shape_out + [len(shape_in)]))
-                    Z, _ = regular_op.interp_regular(points, values, xi)
+                    Z = regular_nd(points, values, xi)
 
                     xi_val = xi.eval()
                     shape = xi_val.shape
