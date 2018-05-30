@@ -5,3 +5,4 @@ test_data/*
 *.pyc
 __pycache__
 .pytest_cache
+var
