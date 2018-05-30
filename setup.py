@@ -10,8 +10,8 @@ link_args = ["-march=native", "-mmacosx-version-min=10.9"]
 args = ["-O2", "-std=c++14", "-stdlib=libc++"] + link_args
 ext_modules = [
     Extension(
-        "interp.interp_ops",
-        [os.path.join("interp", "regular_interp.cc")],
+        "tfinterp.interp_ops",
+        [os.path.join("tfinterp", "regular_interp.cc")],
         language="c++",
         extra_compile_args=args+tf.sysconfig.get_compile_flags(),
         extra_link_args=link_args + tf.sysconfig.get_link_flags(),
@@ -19,7 +19,7 @@ ext_modules = [
 ]
 
 setup(
-    name="interp",
+    name="tfinterp",
     version="0.0.0",
     author="Dan Foreman-Mackey",
     ext_modules=ext_modules,
