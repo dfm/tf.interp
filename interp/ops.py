@@ -21,3 +21,15 @@ def _load_library(name):
 
 
 regular_op = _load_library("regular_op")
+
+
+@tf.RegisterGradient("InterpRegular")
+def _interp_regular_rev(op, *grads):
+    xi = op.inputs[-1]
+    Z = op.outputs[0]
+    dZ = op.outputs[1]
+    bZ = grads[0]
+    nx = tf.size(tf.shape(xi))
+    axes = tf.range(nx, tf.size(tf.shape(Z))+1)
+    bxi = tf.reduce_sum(dZ * tf.expand_dims(bZ, nx-1), axis=axes)
+    return tuple([None for i in range(len(op.inputs)-1)] + [bxi])

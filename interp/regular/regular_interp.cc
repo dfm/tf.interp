@@ -42,10 +42,12 @@ REGISTER_OP("InterpRegular")
     TF_RETURN_IF_ERROR(c->WithValue(dim, ndim, &dim));
 
     // Compute the output shape
-    TF_RETURN_IF_ERROR(c->Subshape(xi_shape, 0, -1, &xi_shape));
-    TF_RETURN_IF_ERROR(c->Concatenate(xi_shape, zi_shape, &zi_shape));
-    c->set_output(0, zi_shape);
-    c->set_output(1, zi_shape);
+    TF_RETURN_IF_ERROR(c->Subshape(xi_shape, 0, -1, &tmp));
+    TF_RETURN_IF_ERROR(c->Concatenate(tmp, zi_shape, &tmp));
+    c->set_output(0, tmp);
+
+    TF_RETURN_IF_ERROR(c->Concatenate(xi_shape, zi_shape, &tmp));
+    c->set_output(1, tmp);
 
     return Status::OK();
   });
@@ -111,44 +113,48 @@ class InterpRegularOp : public OpKernel {
     const auto xi = ConstMatrix(xi_tensor.template flat<T>().data(), ntest, ndim_);
 
     // Allocate temporary arrays to store indices and weights
-    Eigen::Matrix<int64, Eigen::Dynamic, Eigen::Dynamic> inds(ntest, ndim_);
-    Eigen::Matrix<T, Eigen::Dynamic, Eigen::Dynamic> numerator(ntest, ndim_);
-    Eigen::Matrix<T, Eigen::Dynamic, Eigen::Dynamic> denominator(ntest, ndim_);
+    Eigen::Matrix<int64, Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor> inds(ntest, ndim_);
+    Eigen::Matrix<T, Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor> numerator(ntest, ndim_);
+    Eigen::Matrix<T, Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor> denominator(ntest, ndim_);
+    Eigen::Matrix<T, Eigen::Dynamic, 1> accumulator(ndim_);
 
     // Compute the output shapes
     auto values_shape = values_tensor.shape(),
-         zi_shape = xi_tensor.shape();
+         zi_shape = xi_tensor.shape(),
+         dz_shape = xi_tensor.shape();
     values_shape.RemoveDimRange(0, ndim_);
     zi_shape.RemoveLastDims(1);
     zi_shape.AppendShape(values_shape);
     Tensor* zi_tensor = NULL;
-    Tensor* dz_tensor = NULL;
     OP_REQUIRES_OK(context, context->allocate_output(0, zi_shape, &zi_tensor));
-    OP_REQUIRES_OK(context, context->allocate_output(1, zi_shape, &dz_tensor));
+
+    dz_shape.AppendShape(values_shape);
+    Tensor* dz_tensor = NULL;
+    OP_REQUIRES_OK(context, context->allocate_output(1, dz_shape, &dz_tensor));
+
     auto zi = Matrix(zi_tensor->template flat<T>().data(), ntest, nout);
-    zi.setZero();
-    auto dz = Matrix(dz_tensor->template flat<T>().data(), ntest, nout);
+    auto dz = Matrix(dz_tensor->template flat<T>().data(), ntest, ndim_*nout);
     dz.setZero();
 
     // Loop over dimensions and compute the indices of each test point in each grid
-    for (int n = 0; n < ndim_; ++n) {
+    for (int dim = 0; dim < ndim_; ++dim) {
       // Check the grid definition
-      const Tensor& points_tensor = context->input(n);
+      const Tensor& points_tensor = context->input(dim);
       int64 N = points_tensor.NumElements();
       OP_REQUIRES(context, (points_tensor.dims() == 1),
                   errors::InvalidArgument("each tensor in 'points' must be exactly 1-dimensional"));
-      OP_REQUIRES(context, (grid_dims(n) == N),
+      OP_REQUIRES(context, (grid_dims(dim) == N),
                   errors::InvalidArgument("the first 'ndim' dimensions of 'values' must have the same shape as points"));
       const auto points = points_tensor.template flat<T>();
       if (check_sorted_) {
-        for (int64 k = 0; k < N-1; ++k)
-          OP_REQUIRES(context, (points(k+1) > points(k)), errors::InvalidArgument("each tensor in 'points' must be sorted"));
+        for (int64 n = 0; n < N-1; ++n)
+          OP_REQUIRES(context, (points(n+1) > points(n)), errors::InvalidArgument("each tensor in 'points' must be sorted"));
       }
 
       // Find where the point should be inserted into the grid
-      for (int64 m = 0; m < ntest; ++m) {
+      for (int64 n = 0; n < ntest; ++n) {
         bool out_of_bounds = false;
-        int64 ind = search_sorted(N, points, xi(m, n)) - 1;
+        int64 ind = search_sorted(N, points, xi(n, dim)) - 1;
         if (ind < 0) {
           out_of_bounds = true;
           ind = 0;
@@ -160,9 +166,9 @@ class InterpRegularOp : public OpKernel {
         if (bounds_error_) {
           OP_REQUIRES(context, (out_of_bounds == false), errors::InvalidArgument("target point out of bounds"));
         }
-        inds(m, n) = ind;
-        numerator(m, n) = xi(m, n) - points(ind);
-        denominator(m, n) = points(ind+1) - points(ind);
+        inds(n, dim) = ind;
+        numerator(n, dim) = xi(n, dim) - points(ind);
+        denominator(n, dim) = points(ind+1) - points(ind);
       }
     }
 
@@ -171,30 +177,35 @@ class InterpRegularOp : public OpKernel {
     for (int n = 0; n < ntest; ++n) {
 
       // Madness to find the coordinates of every corner
+      zi.row(n).setZero();
+      dz.row(n).setZero();
       for (unsigned corner = 0; corner < ncorner; ++corner) {
         int64 factor = 1;
         int64 ind = 0;
         T weight = T(1.0);
-        T sum = T(0.0);
         for (int dim = ndim_-1; dim >= 0; --dim) {
           unsigned offset = (corner >> unsigned(dim)) & 1;
           ind += factor * (inds(n, dim) + offset);
           factor *= grid_dims(dim);
-          T norm_dist = numerator(n, dim) / denominator(n, dim);
           if (offset == 1) {
-            weight *= norm_dist;
-            sum += T(1.0) / numerator(n, dim);
+            weight *= numerator(n, dim) / denominator(n, dim);
+            accumulator(dim) = numerator(n, dim);
           } else {
-            weight *= T(1.0) - norm_dist;
-            sum -= T(1.0) / numerator(n, dim);
+            //T norm_dist = T(1.0) - numerator(n, dim) / denominator(n, dim);
+            weight *= T(1.0) - numerator(n, dim) / denominator(n, dim);
+            accumulator(dim) = (numerator(n, dim) - denominator(n, dim));
           }
         }
 
         zi.row(n).noalias() += weight * values.row(ind);
-        dz.row(n).noalias() += (weight * sum) * values.row(ind);
+
+        for (int dim = 0; dim < ndim_; ++dim) {
+          dz.block(n, dim * nout, 1, nout).noalias() += (weight / accumulator(dim)) * values.row(ind);
+        }
       }
     }
   }
+
  private:
   int ndim_;
   bool check_sorted_, bounds_error_;
