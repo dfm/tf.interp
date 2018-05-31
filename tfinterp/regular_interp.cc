@@ -197,10 +197,11 @@ class InterpRegularOp : public OpKernel {
           }
         }
 
-        zi.row(n).noalias() += weight * values.row(ind);
-
-        for (int dim = 0; dim < ndim_; ++dim) {
-          dz.block(n, dim * nout, 1, nout).noalias() += (weight / accumulator(dim)) * values.row(ind);
+        if (std::abs(weight) > std::numeric_limits<T>::epsilon()) {
+          zi.row(n).noalias() += weight * values.row(ind);
+          for (int dim = 0; dim < ndim_; ++dim) {
+            dz.block(n, dim * nout, 1, nout).noalias() += (weight / accumulator(dim)) * values.row(ind);
+          }
         }
       }
     }
@@ -217,6 +218,7 @@ class InterpRegularOp : public OpKernel {
       Name("InterpRegular").Device(DEVICE_CPU).TypeConstraint<type>("T"),   \
       InterpRegularOp<type>)
 
-TF_CALL_REAL_NUMBER_TYPES(REGISTER_KERNEL);
+REGISTER_KERNEL(float);
+REGISTER_KERNEL(double);
 
 #undef REGISTER_KERNEL
