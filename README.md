@@ -4,7 +4,7 @@ This module implements a custom TensorFlow operation that replicates the
 [RegularGridInterpolator](https://docs.scipy.org/doc/scipy/reference/generated/scipy.interpolate.RegularGridInterpolator.html)
 from SciPy.
 
-To insall, run:
+To install, run:
 
 ```bash
 python setup.py install
