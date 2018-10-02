@@ -7,7 +7,7 @@
 
 using namespace tensorflow;
 
-REGISTER_OP("InterpRegular")
+REGISTER_OP("RegularInterp")
   .Attr("T: realnumbertype")
   .Attr("ndim: int >= 1")
   .Attr("check_sorted: bool = true")
@@ -69,9 +69,9 @@ inline int64 search_sorted (int64 N, const typename TTypes<T>::ConstFlat& x, con
 }
 
 template <typename T>
-class InterpRegularOp : public OpKernel {
+class RegularInterpOp : public OpKernel {
  public:
-  explicit InterpRegularOp(OpKernelConstruction* context) : OpKernel(context) {
+  explicit RegularInterpOp(OpKernelConstruction* context) : OpKernel(context) {
     OP_REQUIRES_OK(context, context->GetAttr("ndim", &ndim_));
     OP_REQUIRES_OK(context, context->GetAttr("check_sorted", &check_sorted_));
     OP_REQUIRES_OK(context, context->GetAttr("bounds_error", &bounds_error_));
@@ -215,8 +215,8 @@ class InterpRegularOp : public OpKernel {
 
 #define REGISTER_KERNEL(type)                                               \
   REGISTER_KERNEL_BUILDER(                                                  \
-      Name("InterpRegular").Device(DEVICE_CPU).TypeConstraint<type>("T"),   \
-      InterpRegularOp<type>)
+      Name("RegularInterp").Device(DEVICE_CPU).TypeConstraint<type>("T"),   \
+      RegularInterpOp<type>)
 
 REGISTER_KERNEL(float);
 REGISTER_KERNEL(double);

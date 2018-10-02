@@ -6,3 +6,5 @@ test_data/*
 __pycache__
 .pytest_cache
 var
+dist
+*.egg-info
