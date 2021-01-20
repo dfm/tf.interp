@@ -164,7 +164,7 @@ class LinearInterpOp<GPUDevice, T> : public LinearInterpOpBase<T> {
 #define REGISTER_GPU(type)                                                 \
   REGISTER_KERNEL_BUILDER(                                                 \
       Name("Interp").Device(DEVICE_GPU).TypeConstraint<type>("T"),         \
-      InterpOp<GPUDevice, type>)
+      LinearInterpOp<GPUDevice, type>)
 
 REGISTER_GPU(float);
 REGISTER_GPU(double);
