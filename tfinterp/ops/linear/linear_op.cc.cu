@@ -1,6 +1,6 @@
 #ifdef GOOGLE_CUDA
 #define EIGEN_USE_GPU
-#include "interp_op.h"
+#include "linear_op.h"
 #include "cuda_utils.h"
 
 using namespace tfinterp;

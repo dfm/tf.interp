@@ -45,7 +45,7 @@ class LinearInterpolator(object):
                 dimensions.
 
         """
-        with tf.name_scope(self.name, "LinearInterpolator"):
+        with tf.name_scope(self.name or "LinearInterpolator"):
             return linear_op.linear_interp(t, self.x, self.y, name=name)[0]
 
 
@@ -66,7 +66,7 @@ class CubicInterpolator(object):
 
     def __init__(self, x, y, fpa=None, fpb=None, name=None):
         self.name = name
-        with tf.name_scope(name, "CubicInterpolator"):
+        with tf.name_scope(name or "CubicInterpolator"):
             # Compute the deltas
             size = tf.shape(x)[-1]
             axis = tf.rank(x) - 1
@@ -123,8 +123,8 @@ class CubicInterpolator(object):
                 dimensions.
 
         """
-        with tf.name_scope(self.name, "CubicInterpolator"):
-            with tf.name_scope(name, "evaluate"):
+        with tf.name_scope(self.name or "CubicInterpolator"):
+            with tf.name_scope(name or "evaluate"):
                 res = cubic_op.cubic_gather(t, self.x, self.y, self.b, self.c,
                                             self.d)
                 tau = t - res.xk
@@ -165,7 +165,7 @@ class RegularGridInterpolator(object):
         self.name = name
 
     def evaluate(self, t, name=None):
-        with tf.name_scope(self.name, "RegularGridInterpolator"):
+        with tf.name_scope(self.name or "RegularGridInterpolator"):
             return regular_op.regular_interp(
                 self.points, self.values, t,
                 check_sorted=self.check_sorted,

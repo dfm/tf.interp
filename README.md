@@ -19,8 +19,10 @@ python setup.py develop
 And then use:
 
 ```python
-from tfinterp import regular_nd
-zi = regular_nd(points, values, xi)
+from tfinterp.interp import RegularGridInterpolator as RGI
+
+rgi = RGI(points, values)
+zi = rgi.evaluate(xi)
 ```
 
-in your code. See the docstring for `regular_nd` for more information.
+in your code. See the docstring for `RegularGridInterpolator` for more information.

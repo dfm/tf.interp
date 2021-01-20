@@ -42,12 +42,12 @@ namespace tfinterp {
     CudaLaunchConfig config;
     const int virtual_thread_count = work_element_count;
     const int physical_thread_count = std::min(
-        d.getNumCudaMultiProcessors() * d.maxCudaThreadsPerMultiProcessor(),
+        d.getNumGpuMultiProcessors() * d.maxGpuThreadsPerMultiProcessor(),
         virtual_thread_count);
-    const int thread_per_block = std::min(1024, d.maxCudaThreadsPerBlock());
+    const int thread_per_block = std::min(1024, d.maxGpuThreadsPerBlock());
     const int block_count =
       std::min(DivUp(physical_thread_count, thread_per_block),
-          d.getNumCudaMultiProcessors());
+          d.getNumGpuMultiProcessors());
 
     config.virtual_thread_count = virtual_thread_count;
     config.thread_per_block = thread_per_block;
